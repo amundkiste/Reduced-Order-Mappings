@@ -54,7 +54,7 @@ function generate_ω0(L::Float64, N::Int64, θ::Array{Float64, 1},
 end
 
 
-function NS_Solver(curl_f, ω0;  ν = 1.0/40, N_t = 5000, T = 10.0)
+function NS_Solver(curl_f, ω0, ν;  N_t = 5000, T = 10.0)
     L = 2*pi                                        # viscosity
     N = size(ω0, 1)                                 # resolution and domain size 
     ub, vb = 0.0, 0.0                               # background velocity 

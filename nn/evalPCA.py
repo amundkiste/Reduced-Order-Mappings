@@ -47,14 +47,16 @@ def colnorm(u):
 
 M = int(sys.argv[1])
 N_neurons = int(sys.argv[2])
-v_inv = int(sys.argv[3])
+#v_inv = int(sys.argv[3])
 N = 64  # element
-ntrain = M//2
+ntrain = int(M*.8)
+ntest = M - ntrain
 N_theta = 100
 prefix = "../datagen/"
-theta = np.load(prefix+"theta_" + str(v_inv) + "_" + str(M) + ".npy")
-cs = np.load(prefix+"curl_f_" + str(v_inv) + "_"  + str(M) + ".npy") 
-K = np.load(prefix+"omega_" + str(v_inv) + "_"  + str(M) + ".npy")
+v = np.load(prefix+"viscosity_" + str(M) + ".npy")
+theta = np.load(prefix+"theta_" + str(M) + ".npy")
+cs = np.load(prefix+"curl_f_"  + str(M) + ".npy") 
+K = np.load(prefix+"omega_"  + str(M) + ".npy")
 
 acc = 0.999
 
@@ -67,30 +69,30 @@ print(inputs.shape)
 
 compute_input_PCA = True
 if compute_input_PCA:
-    train_inputs = np.reshape(inputs[:,:,:M//2], (-1, M//2))
-    test_inputs  = np.reshape(inputs[:,:,M//2:M], (-1, M-M//2))
+    train_inputs = np.reshape(inputs[:,:,:ntrain], (-1, ntrain))
+    test_inputs  = np.reshape(inputs[:,:,ntrain:M], (-1, ntest))
+    v_train = v[:ntrain]
+    v_test  = v[ntrain:M]
     Ui,Si,Vi = np.linalg.svd(train_inputs)
     en_f= 1 - np.cumsum(Si)/np.sum(Si)
     r_f = np.argwhere(en_f<(1-acc))[0,0]
-    
     # r_f = min(r_f, 512)
+    # print(Si[98:210])
     r_f = 128
-    
     Uf = Ui[:,:r_f]
     f_hat = np.matmul(Uf.T,train_inputs)
     f_hat_test = np.matmul(Uf.T,test_inputs)
-
     x_train = torch.from_numpy(f_hat.T.astype(np.float32))
 else:
     
-    train_inputs =  theta[:M//2, :]
-    test_inputs  = theta[M//2:M, :]
+    train_inputs =  theta[:ntrain, :]
+    test_inputs  = theta[ntrain:M, :]
     r_f = N_theta
     x_train = torch.from_numpy(train_inputs.astype(np.float32))
     f_hat_test = test_inputs.T
     
-train_outputs = np.reshape(outputs[:,:,:M//2], (-1, M//2))
-test_outputs  = np.reshape(outputs[:,:,M//2:M], (-1, M-M//2))
+train_outputs = np.reshape(outputs[:,:,:ntrain], (-1, ntrain))
+test_outputs  = np.reshape(outputs[:,:,ntrain:M], (-1, ntest))
 Uo,So,Vo = np.linalg.svd(train_outputs)
 en_g = 1 - np.cumsum(So)/np.sum(So)
 r_g = np.argwhere(en_g<(1-acc))[0,0]
@@ -100,12 +102,12 @@ y_train = torch.from_numpy(g_hat.T.astype(np.float32))
 
 
 
-model = torch.load("PCANet_"+str(N_neurons)+"Nd_"+str(v_inv)+".model")
+model = torch.load("PCANet_"+str(N_neurons)+"Nd.model")
 model.to(device)
-
 
 x_normalizer = UnitGaussianNormalizer(x_train)
 x_train = x_normalizer.encode(x_train)
+x_train = torch.from_numpy(np.hstack((x_train, np.reshape(v_train, (ntrain, -1))))).float()
 y_normalizer = UnitGaussianNormalizer(y_train)
 y_train = y_normalizer.encode(y_train)
 
@@ -127,11 +129,12 @@ mre_nn_train = np.mean(rel_err_nn_train)
 # print(f_hat_test.shape)
 # f_hat_test = np.matmul(Uf.T,test_inputs)
 x_test = torch.from_numpy(f_hat_test.T.astype(np.float32))
-x_test = x_normalizer.encode(x_test.to(device))
+x_test = torch.from_numpy(np.hstack((x_test, np.reshape(v_test, (ntest, -1))))).float()
+x_test = x_test.to(device)
 y_pred_test  = y_normalizer.decode(model(x_test).detach()).cpu().numpy().T
 
-rel_err_nn_test = np.zeros(M//2)
-for i in range(M//2):
+rel_err_nn_test = np.zeros(ntest)
+for i in range(ntest):
     rel_err_nn_test[i] = np.linalg.norm(test_outputs[:, i]  - np.matmul(Ug, y_pred_test[:, i]))/np.linalg.norm(test_outputs[:, i])
 mre_nn_test = np.mean(rel_err_nn_test)
 
@@ -148,9 +151,9 @@ print("NN: ", N_neurons, "rel train error: ", mre_nn_train, "rel test error ", m
 test_input_save  = np.zeros((N,  N, 3))
 test_output_save = np.zeros((N,  N, 6))
 for i, ind in enumerate([np.argmin(rel_err_nn_test), np.argsort(rel_err_nn_test)[len(rel_err_nn_test)//2], np.argmax(rel_err_nn_test)]):
-    test_input_save[:, :, i]  = inputs[:, :, M//2 + ind]
+    test_input_save[:, :, i]  = inputs[:, :, ntrain + ind]
     # truth
-    test_output_save[:, :, i] = outputs[:, :, M//2 + ind]
+    test_output_save[:, :, i] = outputs[:, :, ntrain + ind]
     # predict
     test_output_save[:, :, i + 3] =  np.reshape(np.matmul(Ug, y_pred_test[:, ind]), (N,N))
 

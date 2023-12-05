@@ -10,14 +10,16 @@ device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cp
 
 M = int(sys.argv[1])
 N_neurons = int(sys.argv[2])
-v_inv = int(sys.argv[3])
+#v_inv = int(sys.argv[3])
 N = 64  # element
-ntrain = M//2
+ntrain = int(M*.8)
+ntest = M - ntrain
 N_theta = 100
 prefix = "../datagen/"
-theta = np.load(prefix+"theta_" + str(v_inv) + "_" + str(M) + ".npy")
-cs = np.load(prefix+"curl_f_" + str(v_inv) + "_"  + str(M) + ".npy") 
-K = np.load(prefix+"omega_" + str(v_inv) + "_"  + str(M) + ".npy")
+v = np.load(prefix+"viscosity_" + str(M) + ".npy")
+theta = np.load(prefix+"theta_" + str(M) + ".npy")
+cs = np.load(prefix+"curl_f_"  + str(M) + ".npy") 
+K = np.load(prefix+"omega_"  + str(M) + ".npy")
 
 
 acc = 0.999
@@ -32,8 +34,10 @@ outputs = K
 compute_input_PCA = True
 
 if compute_input_PCA:
-    train_inputs = np.reshape(inputs[:,:,:M//2], (-1, M//2))
-    test_inputs  = np.reshape(inputs[:,:,M//2:M], (-1, M-M//2))
+    train_inputs = np.reshape(inputs[:,:,:ntrain], (-1, ntrain))
+    test_inputs  = np.reshape(inputs[:,:,ntrain:M], (-1, ntest))
+    v_train = v[:ntrain]
+    v_test  = v[ntrain:M]
     Ui,Si,Vi = np.linalg.svd(train_inputs)
     en_f= 1 - np.cumsum(Si)/np.sum(Si)
     r_f = np.argwhere(en_f<(1-acc))[0,0]
@@ -45,15 +49,15 @@ if compute_input_PCA:
     x_train = torch.from_numpy(f_hat.T.astype(np.float32))
 else:
     
-    train_inputs =  theta[:M//2, :]
-    test_inputs  = theta[M//2:M, :]
+    train_inputs =  theta[:ntrain, :]
+    test_inputs  = theta[ntrain:M, :]
     r_f = N_theta
     x_train = torch.from_numpy(train_inputs.astype(np.float32))
     
 
 
-train_outputs = np.reshape(outputs[:,:,:M//2], (-1, M//2))
-test_outputs  = np.reshape(outputs[:,:,M//2:M], (-1, M-M//2))
+train_outputs = np.reshape(outputs[:,:,:ntrain], (-1, ntrain))
+test_outputs  = np.reshape(outputs[:,:,ntrain:M], (-1, ntest))
 Uo,So,Vo = np.linalg.svd(train_outputs)
 en_g = 1 - np.cumsum(So)/np.sum(So)
 r_g = np.argwhere(en_g<(1-acc))[0,0]
@@ -64,6 +68,7 @@ y_train = torch.from_numpy(g_hat.T.astype(np.float32))
 
 x_normalizer = UnitGaussianNormalizer(x_train)
 x_train = x_normalizer.encode(x_train)
+x_train = torch.from_numpy(np.hstack((x_train, np.reshape(v_train, (ntrain, -1))))).float()
 y_normalizer = UnitGaussianNormalizer(y_train)
 y_train = y_normalizer.encode(y_train)
 
@@ -73,7 +78,7 @@ print("Input #bases : ", r_f, " output #bases : ", r_g)
 # training and evaluation
 ################################################################
 batch_size = 16
-
+print(x_train.dtype, y_train.dtype)
 train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x_train, y_train), batch_size=batch_size, shuffle=True)
 
 learning_rate = 0.001
@@ -85,7 +90,7 @@ gamma = 0.5
 
 
 layers = 4
-model = FNN(r_f, r_g, layers, N_neurons) 
+model = FNN(r_f+1, r_g, layers, N_neurons) 
 print(count_params(model))
 model.to(device)
 
@@ -114,7 +119,7 @@ for ep in range(epochs):
         optimizer.step()
         train_l2 += loss.item()
 
-    torch.save(model, "PCANet_"+str(N_neurons)+"Nd_"+str(v_inv)+".model")
+    torch.save(model, "PCANet_"+str(N_neurons)+"Nd.model")
     scheduler.step()
 
     train_l2/= ntrain
