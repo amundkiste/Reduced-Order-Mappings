@@ -16,7 +16,7 @@ mpl.rcParams.update(mpl.rcParamsDefault)
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-coloroption="darkslides"
+coloroption="paper"
 
 plt.rc("figure", dpi=300)           # High-quality figure ("dots-per-inch")
 plt.rc("text", usetex=True)         # Crisp axis ticks
@@ -49,11 +49,11 @@ N = 64
 xgrid = np.linspace(0,1,N)
 dx    = xgrid[1] - xgrid[0]
 
-fig = plt.figure(figsize=(10,10))
+fig = plt.figure(figsize=(8,12))
 subfigs = fig.subfigures(nrows=4,ncols=1)
 axs = []
 for row,subfig in enumerate(subfigs):
-    axs.append(subfig.subplots(1,5))
+    axs.append(subfig.subplots(1,3))
 ims = []
 
 offset=2
@@ -69,13 +69,16 @@ output_truth = []
 output_pred = []
 output_err= []
 mre = []
+vs = []
 
 prefix = "../datagen/"
 v = np.load(prefix+"viscosity_" + str(M) + ".npy")
 theta = np.load(prefix+"theta_" + str(M) + ".npy")
 inputs = np.load(prefix+"curl_f_"  + str(M) + ".npy") 
 outputs = np.load(prefix+"omega_"  + str(M) + ".npy")
-model = torch.load("../nn/PCANet_200Nd.model")
+models = []
+for i in range(1):
+    models.append(torch.load("../nn/PCANet_200Nd_"+str(i)+".model"))
 
 train_inputs = np.reshape(inputs[:,:,:ntrain], (-1, ntrain))
 test_inputs  = np.reshape(inputs[:,:,ntrain:M], (-1, ntest))
@@ -101,7 +104,6 @@ r_g = np.argwhere(en_g<(1-acc))[0,0]
 Ug = Uo[:,:r_g]
 g_hat = np.matmul(Ug.T,train_outputs) 
 y_train = torch.from_numpy(g_hat.T.astype(np.float32))
-model.to(device)
         
 x_normalizer = UnitGaussianNormalizer(x_train)
 x_train = x_normalizer.encode(x_train)
@@ -116,57 +118,99 @@ x_test = x_normalizer.encode(x_test.to(device))
 x_test = torch.from_numpy(np.hstack((x_test.cpu(), np.reshape(v_test, (ntest, -1))))).float()
 x_test = x_test.to(device)
 
-y_pred_test  = y_normalizer.decode(model(x_test).detach()).cpu().numpy().T
-for i in range(5):
-    i = random.randint(0,ntest-1)
-    xgrid = np.linspace(0,1,N)
-    Y, X = np.meshgrid(xgrid, xgrid)
-    output_pred.append(np.reshape(np.matmul(Ug, y_pred_test[:,i]), (N,N)))
-    input_truth.append(np.reshape(test_inputs[:,i], (N,N)))
-    output_truth.append(np.reshape(test_outputs[:,i], (N,N)))
-    output_err.append(np.reshape(test_outputs[:,i], (N,N))-np.reshape(np.matmul(Ug, y_pred_test[:,i]), (N,N)))
-    mre.append(np.linalg.norm(np.reshape(test_outputs[:,i] - np.matmul(Ug, y_pred_test[:,i]), (N,N)))/np.linalg.norm(np.reshape(test_outputs[:,i], (N,N))))
+if False:
+    y_pred_test = y_normalizer.decode(models[0](x_test).detach()).cpu().numpy().T
+    for j in range(3):
+        if j == 0:
+            min_v = np.min(v[ntrain:])
+            print("Min: ", min_v)
+            vs.append(min_v)
+            i = np.where(v[ntrain:] == min_v)[0][0]
+        elif j == 1: 
+            max_v = np.max(v[ntrain:])
+            print("Max: ", max_v)
+            i = np.where(v[ntrain:] == max_v)[0][0]
+            vs.append(max_v)    
+        else: 
+            mid_v = min(v[ntrain:], key=lambda x:abs(x-0.5))
+            print("Mid: ", mid_v)
+            i = np.where(v[ntrain:] == mid_v)[0][0]
+            vs.append(mid_v)
+        print("Viscosity: ", v[ntrain+i])
+        print("Index: ", i)
+        xgrid = np.linspace(0,1,N)
+        Y, X = np.meshgrid(xgrid, xgrid)
+        input_truth.append(np.reshape(test_inputs[:,i], (N,N)))
+        output_corr = (np.max(test_outputs[:,i])-np.min(test_outputs[:,i]))/2
+        print("Corr: ", output_corr)
+        output_truth.append(np.reshape(test_outputs[:,i], (N,N))/output_corr)
+        output_pred.append(np.reshape(np.matmul(Ug, y_pred_test[:,i]), (N,N))/output_corr)
+        output_err.append((np.reshape(test_outputs[:,i]-np.matmul(Ug, y_pred_test[:,i]), (N,N)))/output_corr)
+        mre.append(np.linalg.norm(test_outputs[:,i] - np.matmul(Ug, y_pred_test[:,i]))/np.linalg.norm(test_outputs[:,i]))
+        print("MRE: ", mre[-1])
+
+    v_min = min(np.min(output_truth),np.min(output_pred))
+    v_max = max(np.max(output_truth),np.max(output_pred))
+    err_min = np.min(output_err)
+    err_max = np.max(output_err)
+    for i in range(3):
+            ims.append(axs[0][i].pcolormesh(X,Y,input_truth[i],shading="gouraud",cmap="RdBu"))
+            ims.append(axs[1][i].pcolormesh(X,Y,output_truth[i],shading="gouraud",cmap="RdBu",vmin=-1.2,vmax=1.2))
+            ims.append(axs[2][i].pcolormesh(X,Y,output_pred[i],shading="gouraud",cmap="RdBu",vmin=-1.2,vmax=1.2))
+            ims.append(axs[3][i].pcolormesh(X,Y,output_err[i],shading="gouraud",cmap="RdBu", vmin=err_min,vmax=err_max))
+            axs[3][i].set_title(f"MRE: {mre[i]:.3f}")
+            for j in range(4):
+                axs[j][i].set_aspect("equal","box")
+                axs[j][i].set_axis_off()
+            i+=1
         
-v_min = min(np.min(output_truth),np.min(output_pred))
-v_max = max(np.max(output_truth),np.max(output_pred))
-err_min = np.min(output_err)
-err_max = np.max(output_err)
-for i in range(5):
-        ims.append(axs[0][i].pcolormesh(X,Y,input_truth[i],shading="gouraud",cmap="RdBu"))
-        ims.append(axs[1][i].pcolormesh(X,Y,output_truth[i],shading="gouraud",cmap="RdBu",vmin=v_min,vmax=v_max))
-        ims.append(axs[2][i].pcolormesh(X,Y,output_pred[i],shading="gouraud",cmap="RdBu",vmin=v_min,vmax=v_max))
-        ims.append(axs[3][i].pcolormesh(X,Y,output_err[i],shading="gouraud",cmap="RdBu", vmin=err_min,vmax=err_max))
-        axs[3][i].set_label(str(mre[i]))
+    axs[0][0].set_title("Viscosity: 0")
+    axs[0][1].set_title("Viscosity: 1")
+    axs[0][2].set_title("Viscosity: 0.5")
+    subfigs[0].suptitle("Forcing Function",fontsize=16,y=0.95)
+    subfigs[2].suptitle("Prediction",fontsize=16,y=0.95)
+    subfigs[1].suptitle("Ground Truth",fontsize=16,y=0.95)
+    subfigs[3].suptitle("Error",fontsize=16,y=0.95)
+
+    plt.subplots_adjust(left=0.02,right=0.87,bottom=0.02,top=0.90)
+    cax = []
+    for i in range(4):
+        temp = axs[i][-1].get_position()
+        cax.append(subfigs[i].add_axes([0.89,temp.y0,0.02,temp.y1-temp.y0]))
+        if i==0:
+            cb = plt.colorbar(ims[i],cax=cax[i],ticks=[np.min(test_inputs),0,np.max(test_inputs)])
+        elif i == 1:
+            cb = plt.colorbar(ims[i],cax=cax[i],ticks=[-1.2,-1,-0.5,0,0.5,1,1.2])
+        elif i == 2:
+            cb = plt.colorbar(ims[i],cax=cax[i],ticks=[-1.2,-1,-0.5,0,0.5,1,1.2])
+        elif i == 3:
+            cb = plt.colorbar(ims[i],cax=cax[i],ticks=[err_min,-0.4,-0.2,0,0.2,0.4,err_max])
+        cb.outline.set_visible(False)
+        cb.ax.yaxis.set_tick_params(width=0.3)
+        for t in cb.ax.get_yticklabels():
+            t.set_fontsize(12)
+
+
+    fig.savefig("NS-pca-vis-"+coloroption+".pdf")
+else:
         
-        for j in range(4):
-            axs[j][i].set_aspect("equal","box")
-            axs[j][i].set_axis_off()
-        i+=1
-    
-subfigs[0].suptitle("Input",fontsize=16,y=0.95)
-subfigs[2].suptitle("Prediction",fontsize=16,y=0.95)
-subfigs[1].suptitle("\"Truth\"",fontsize=16,y=0.95)
-subfigs[3].suptitle("Error",fontsize=16,y=0.95)
-
-plt.subplots_adjust(left=0.02,right=0.87,bottom=0.02,top=0.90)
-cax = []
-for i in range(4):
-    temp = axs[i][4].get_position()
-    cax.append(subfigs[i].add_axes([0.89,temp.y0,0.02,temp.y1-temp.y0]))
-    if i==0:
-        cb = plt.colorbar(ims[i],cax=cax[i],ticks=[np.min(test_inputs),0,np.max(test_inputs)])
-    elif i == 1:
-        cb = plt.colorbar(ims[i],cax=cax[i],ticks=[v_min,0,v_max])
-    elif i == 2:
-        cb = plt.colorbar(ims[i],cax=cax[i],ticks=[v_min,0,v_max])
-    elif i == 3:
-        cb = plt.colorbar(ims[i],cax=cax[i],ticks=[err_min,0,err_max])
-    cb.outline.set_visible(False)
-    cb.ax.yaxis.set_tick_params(width=0.3)
-    for t in cb.ax.get_yticklabels():
-        t.set_fontsize(12)
-
-
-fig.savefig("NS-pca-vis-"+coloroption+".pdf")
-plt.close("all")
-# plt.colorbar()
+    y_pred_test = []
+    for i in range(1):
+        models[i].to(device)
+        y_pred_test.append(y_normalizer.decode(models[i](x_test).detach()).cpu().numpy().T)
+        
+    plt.close("all")
+    for j in range(1):
+        rel_err_nn_test = np.zeros(ntest)
+        output_corr = np.zeros(ntest)
+        for i in range(ntest):
+            
+            output_corr[i] = (np.max(test_outputs[:,i])-np.min(test_outputs[:,i]))
+            rel_err_nn_test[i] = np.linalg.norm(test_outputs[:, i]  - np.matmul(Ug, y_pred_test[j][:, i]))/np.linalg.norm(test_outputs[:, i])
+        plt.scatter(v[ntrain:], rel_err_nn_test, 1)
+        #plt.scatter(v[ntrain:], output_corr, 1)
+        plt.xlabel("Viscosity")
+        plt.ylabel("Mean Relative Error")
+        plt.savefig("NS-pca-vis-mre"+str(j)+".pdf")
+        plt.close("all")
+        # plt.colorbar()

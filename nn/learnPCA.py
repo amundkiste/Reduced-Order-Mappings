@@ -83,51 +83,53 @@ train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x_trai
 
 learning_rate = 0.001
 
-epochs = 1000
+epochs = 500
 step_size = 100
 gamma = 0.5
 
 
 
 layers = 4
-model = FNN(r_f+1, r_g, layers, N_neurons) 
-print(count_params(model))
-model.to(device)
+for seed in range(10):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+        
+    model = FNN(r_f+1, r_g, layers, N_neurons) 
+    print(count_params(model))
+    model.to(device)
 
-optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
+    optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
 
-myloss = torch.nn.MSELoss(reduction='sum')
-y_normalizer.cuda()
-t0 = default_timer()
-for ep in range(epochs):
-    model.train()
-    t1 = default_timer()
-    train_l2 = 0
-    for x, y in train_loader:
-        x, y = x.cuda(), y.cuda()
+    myloss = torch.nn.MSELoss(reduction='sum')
+    y_normalizer.cuda()
+    t0 = default_timer()
+    for ep in range(epochs):
+        model.train()
+        t1 = default_timer()
+        train_l2 = 0
+        for x, y in train_loader:
+            x, y = x.cuda(), y.cuda()
 
-        batch_size_ = x.shape[0]
-        optimizer.zero_grad()
-        out = model(x)
-        out = y_normalizer.decode(out)
-        y = y_normalizer.decode(y)
+            batch_size_ = x.shape[0]
+            optimizer.zero_grad()
+            out = model(x)
+            out = y_normalizer.decode(out)
+            y = y_normalizer.decode(y)
 
-        loss = myloss(out , y)
-        loss.backward()
+            loss = myloss(out , y)
+            loss.backward()
 
-        optimizer.step()
-        train_l2 += loss.item()
+            optimizer.step()
+            train_l2 += loss.item()
 
-    torch.save(model, "PCANet_"+str(N_neurons)+"Nd.model")
-    scheduler.step()
+        torch.save(model, "PCANet_"+str(N_neurons)+"Nd_"+str(seed)+".model")
+        scheduler.step()
 
-    train_l2/= ntrain
+        train_l2/= ntrain
 
-    t2 = default_timer()
-    print("Epoch : ", ep, " Epoch time : ", t2-t1, " Train L2 Loss : ", train_l2)
+        t2 = default_timer()
+        print("Epoch : ", ep, " Epoch time : ", t2-t1, " Train L2 Loss : ", train_l2)
+    print("Total time is :", default_timer() - t0, "Total epoch is ", epochs)
 
-
-
-print("Total time is :", default_timer() - t0, "Total epoch is ", epochs)
 
