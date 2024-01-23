@@ -8,7 +8,7 @@
 
 function Data_Generate()
     #viscosity_inv = 1
-    N_data = 5000
+    N_data = 1000
     #ν = 1.0/viscosity_inv                                      # viscosity
     N, L = 100, 2*pi                                 # resolution and domain size 
     N_t = 5000;                                     # time step
@@ -22,7 +22,7 @@ function Data_Generate()
 
     Random.seed!(42);
     θf = rand(Normal(0,1), N_data, N_θ)
-    v = rand(big.(-3:0), N_data)
+    v = rand(Uniform(-4, 1), N_data)
     v = 10.0.^v
     curl_f = zeros(N, N, N_data)
     for i = 1:N_data
@@ -31,7 +31,7 @@ function Data_Generate()
     end
 
     θω = rand(Normal(0,1), N_θ)
-    ω0 = generate_ω0(L, N, θω, seq_pairs, d, τ)
+    ω0 = npzread("omega0_5000.npy")
 
     # Define caller function
     @everywhere g_(x) = 
@@ -47,11 +47,11 @@ function Data_Generate()
         ω_field[:,:, i] = ω_tuple[i]
     end
 
-    npzwrite("viscosity_$(N_data).npy",  v)
-    npzwrite("theta_$(N_data).npy",  θf)
-    npzwrite("omega_$(N_data).npy",  ω_field)
-    npzwrite("curl_f_$(N_data).npy", curl_f)
-    npzwrite("omega0_$(N_data).npy", ω0)
+    npzwrite("viscosity_$(N_data)_test.npy",  v)
+    npzwrite("theta_$(N_data)_test.npy",  θf)
+    npzwrite("omega_$(N_data)_test.npy",  ω_field)
+    npzwrite("curl_f_$(N_data)_test.npy", curl_f)
+    npzwrite("omega0_$(N_data)_test.npy", ω0)
 
 end
 
